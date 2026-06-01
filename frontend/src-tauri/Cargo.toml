@@ -1,0 +1,31 @@
+[package]
+name = "dhanniti"
+version = "1.0.0"
+description = "DhanNiti — AI Quant Portfolio Optimizer"
+authors = ["Siddharth Badjate"]
+license = "MIT"
+repository = "https://github.com/Sidbad12/DhanNiti"
+default-run = "dhanniti"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "dhanniti_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "dhanniti"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }

@@ -1,0 +1,110 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Poetry
+.poetry/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+
+# Linting
+.ruff_cache/
+
+# Environment secrets (NEVER commit)
+.env
+.env.local
+.env.*.local
+frontend/.env.local
+frontend/.env*.local
+
+# MLflow / experiment artifacts
+experiments/
+mlruns/
+
+# Saved models (large binaries — never publish trained weights)
+models/*.pkl
+models/**/*.pkl
+models/*.joblib
+models/**/*.joblib
+models/*.zip
+models/**/*.zip
+models/qdrant_db/
+models/ppo_dhanniti*
+models/memory_fallback.json
+!models/hmm_regime.pkl
+!models/v2/v2_sac_final.zip
+
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
+
+# Node (frontend)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# Markdown planning and transcript files
+*.md
+!README.md
+!frontend/README.md
+
+# Cache directories
+data/cache/
+graphify-out/cache/
+
+# Local artifacts and knowledge graph output
+artifacts/
+graphify-out/
+
+# Local scratch / debug scripts — never commit
+scratch/
+
+# UI reference / design files — not production code
+SetupTerminal.jsx
+
+# IDE Codex
+.codex/
+
+# Tensorboard logs
+tensorboard_logs/
+
+# Allow agent rules
+!.agents/
+!.agents/**/*.md

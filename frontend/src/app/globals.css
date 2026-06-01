@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), "Inter", system-ui, sans-serif;
+  --font-mono: var(--font-mono), "JetBrains Mono", "Fira Code", monospace;
+}
+
+@layer base {
+  :root {
+    --bg-base:        #121212;
+    --bg-panel:       #18181b;
+    --bg-card:        #27272a;
+    --bg-card-hover:  #3f3f46;
+    --border:         #3f3f46;
+    --border-accent:  #52525b;
+    --text-primary:   #e2e8f0;
+    --text-secondary: #64748b;
+    --text-muted:     #374151;
+    --green:          #00d97e;
+    --green-dim:      #00d97e22;
+    --red:            #ff4d6a;
+    --red-dim:        #ff4d6a22;
+    --blue:           #3b82f6;
+    --blue-dim:       #3b82f622;
+    --amber:          #f59e0b;
+    --purple:         #8b5cf6;
+    --teal:           #14b8a6;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #1e2d40; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: #2d4060; }
+
+  /* Selection */
+  ::selection { background: #00d97e22; color: #00d97e; }
+}
+
+/* ── Animations ─────────────────────────────── */
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 #00d97e44; }
+  50%       { opacity: 0.7; box-shadow: 0 0 0 4px transparent; }
+}
+
+@keyframes ticker-slide {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px #00d97e15; }
+  50%       { box-shadow: 0 0 40px #00d97e30, 0 0 80px #00d97e10; }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out forwards;
+}
+
+.live-dot {
+  animation: pulse-green 2s ease-in-out infinite;
+}
+
+.glow-card {
+  animation: glow-pulse 4s ease-in-out infinite;
+}
+
+.ticker-track {
+  animation: ticker-slide 40s linear infinite;
+}
+
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+/* ── Skeleton loader ────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #111827 25%,
+    #1a2535 50%,
+    #111827 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+
+/* ── Number formatting ──────────────────────── */
+.num { font-family: var(--font-mono); letter-spacing: -0.02em; }
+.bull { color: var(--green); }
+.bear { color: var(--red); }
+.neut { color: var(--text-secondary); }
+
+/* ── Panel base ─────────────────────────────── */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.2s ease;
+}
+
+.panel:hover { border-color: var(--border-accent); }
+
+/* ── Green accent glow ──────────────────────── */
+.accent-glow {
+  box-shadow: 0 0 0 1px #00d97e33, inset 0 1px 0 #00d97e15;
+}
+
