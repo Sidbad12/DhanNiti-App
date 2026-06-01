@@ -263,10 +263,6 @@ The setup script handles everything: dependency checks, Python venv creation, pi
 ### Environment Variables
 
 ```env
-# Dhan (portfolio sync)
-DHAN_CLIENT_ID=your_client_id
-DHAN_ACCESS_TOKEN=your_access_token
-
 # Supabase (database)
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
@@ -275,8 +271,12 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 # Groq (LLM advisory)
 GROQ_API_KEY=your_groq_key
 
-# Fyers (optional - live charting feed)
-FYERS_APP_ID=your_app_id
+# Qdrant (Vector memory for RL agent)
+QDRANT_URL=https://your-cluster.aws.cloud.qdrant.io
+QDRANT_API_KEY=your_qdrant_key
+
+# Fyers (optional - live charting & portfolio sync)
+FYERS_CLIENT_ID=your_client_id
 FYERS_SECRET_KEY=your_secret_key
 ```
 
