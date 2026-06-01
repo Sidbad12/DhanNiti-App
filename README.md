@@ -13,6 +13,7 @@
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-dhanniti.vercel.app-00D4AA?style=for-the-badge)](https://dhan-niti.vercel.app)
 [![Desktop App](https://img.shields.io/badge/Desktop%20App-DhanNiti--App-blue?style=for-the-badge&logo=github)](https://github.com/Sidbad12/DhanNiti-App)
+[![Powered By SAC](https://img.shields.io/badge/Powered%20By-SAC%20Reinforcement%20Learning-00d97e?style=for-the-badge)](#features)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
 ---
