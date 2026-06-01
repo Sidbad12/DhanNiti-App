@@ -3,14 +3,10 @@
 > A reinforcement learning agent that learns **generalised market patterns**, not stock-specific history.
 
 
-| Strategy             | Annualized Return |   Sharpe |   Calmar | Max Drawdown |
-
-| -------------------- | ----------------: | -------: | -------: | -----------: |
-
-| **RL Trading Agent** |        **129.8%** | **1.42** | **7.37** |   **−16.1%** |
-
-| Buy & Hold           |             21.6% |     0.26 |     0.51 |       −42.9% |
-
+| Strategy | Annualized Return | Sharpe | Calmar | Max Drawdown |
+| :--- | :--- | :--- | :--- | :--- |
+| **RL Trading Agent** | 129.8% | 1.42 | 7.37 | −16.1% |
+| **Buy & Hold** | 21.6% | 0.26 | 0.51 | −42.9% |
 
 
 **Result:** The RL agent delivered significantly higher returns with substantially lower drawdown and superior risk-adjusted performance compared to the benchmark.
