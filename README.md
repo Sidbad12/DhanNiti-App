@@ -11,7 +11,7 @@
 
 **Result:** The RL agent delivered significantly higher returns with substantially lower drawdown and superior risk-adjusted performance compared to the benchmark.
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-dhanniti.vercel.app-00D4AA?style=for-the-badge)](https://dhanniti.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-dhanniti.vercel.app-00D4AA?style=for-the-badge)](https://dhan-niti.vercel.app)
 [![Desktop App](https://img.shields.io/badge/Desktop%20App-DhanNiti--App-blue?style=for-the-badge&logo=github)](https://github.com/Sidbad12/DhanNiti-App)
 [![Powered By SAC](https://img.shields.io/badge/Powered%20By-SAC%20Reinforcement%20Learning-00d97e?style=for-the-badge)](#features)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
@@ -368,10 +368,3 @@ DhanNiti is an open-source personal research project. Backtest results are simul
 [MIT License](LICENSE) © 2026 Siddharth Badjate
 
 ---
-
-## Links
-
-| | |
-|---|---|
-| Live Demo | [dhanniti.vercel.app](https://dhan-niti.vercel.app) |
-| Desktop App | [github.com/Sidbad12/DhanNiti-App](https://github.com/Sidbad12/DhanNiti-App) |
