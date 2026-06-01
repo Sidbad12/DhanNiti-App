@@ -2,10 +2,20 @@
 
 > A reinforcement learning agent that learns **generalised market patterns**, not stock-specific history.
 
-**+129.8% avg annualised return · Sharpe 1.42 · Calmar 7.37 · MaxDD −16.1%**
-vs Buy & Hold: +21.6% · 0.26 · 0.51 · −42.9%
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-dhanniti.vercel.app-00D4AA?style=for-the-badge)](https://dhanniti.vercel.app)
+| Strategy             | Annualized Return |   Sharpe |   Calmar | Max Drawdown |
+
+| -------------------- | ----------------: | -------: | -------: | -----------: |
+
+| **RL Trading Agent** |        **129.8%** | **1.42** | **7.37** |   **−16.1%** |
+
+| Buy & Hold           |             21.6% |     0.26 |     0.51 |       −42.9% |
+
+
+
+**Result:** The RL agent delivered significantly higher returns with substantially lower drawdown and superior risk-adjusted performance compared to the benchmark.
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-dhanniti.vercel.app-00D4AA?style=for-the-badge)](https://dhan-niti.vercel.app)
 [![Desktop App](https://img.shields.io/badge/Desktop%20App-DhanNiti--App-blue?style=for-the-badge&logo=github)](https://github.com/Sidbad12/DhanNiti-App)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
