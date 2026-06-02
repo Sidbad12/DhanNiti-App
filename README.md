@@ -359,7 +359,7 @@ To use the full system with live data, download and run the desktop app locally.
 
 ## Disclaimer
 
-DhanNiti is an open-source personal research project. Backtest results are simulated and do not account for real-world slippage, market impact, or execution costs. Not financial advice. Do not allocate real capital based solely on these signals.
+DhanNiti is an open-source personal research project. Backtest results are simulated and do not account for real-world slippage, market impact, or execution costs. Not for financial advice. Do not allocate real capital based solely on these signals.
 
 ---
 
