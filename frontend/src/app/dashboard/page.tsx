@@ -425,6 +425,94 @@ export default function Dashboard() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   
+  // Scheduler State
+  const [isTauri, setIsTauri] = useState(false);
+  const [schedulerStatus, setSchedulerStatus] = useState<{
+    enabled: boolean;
+    cron_expression: string;
+    last_run_time: string | null;
+    last_run_status: string | null;
+    is_running: boolean;
+  } | null>(null);
+  const [schedulerLoading, setSchedulerLoading] = useState(false);
+
+  const loadSchedulerStatus = async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke("get_scheduler_status");
+      setSchedulerStatus(status as any);
+    } catch (e) {
+      console.error("Failed to load scheduler status:", e);
+    }
+  };
+
+  const handleToggleScheduler = async (enabled: boolean) => {
+    setSchedulerLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const status = await invoke("toggle_scheduler", { enabled });
+      setSchedulerStatus(status as any);
+    } catch (e) {
+      console.error("Failed to toggle scheduler:", e);
+    } finally {
+      setSchedulerLoading(false);
+    }
+  };
+
+  const handleTriggerSchedulerNow = async () => {
+    setSchedulerLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("trigger_scheduler_now");
+      setSchedulerStatus(prev => prev ? { ...prev, is_running: true, last_run_status: "Running (manual)..." } : null);
+    } catch (e: any) {
+      alert(e.message || e);
+    } finally {
+      setSchedulerLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+      setIsTauri(true);
+      loadSchedulerStatus();
+      
+      let unlistenStart: (() => void) | null = null;
+      let unlistenFinished: (() => void) | null = null;
+      
+      const listenEvents = async () => {
+        const { listen } = await import("@tauri-apps/api/event");
+        
+        const startSub = await listen("scheduler-run-started", () => {
+          setSchedulerStatus(prev => prev ? { ...prev, is_running: true, last_run_status: "Running..." } : null);
+        });
+        unlistenStart = startSub;
+        
+        const finishSub = await listen("scheduler-run-finished", (event) => {
+          const status = event.payload as string;
+          setSchedulerStatus(prev => prev ? {
+            ...prev,
+            is_running: false,
+            last_run_status: status === "success" ? "Success" : `Failed (${status})`,
+            last_run_time: new Date().toLocaleDateString() + " " + new Date().toLocaleTimeString()
+          } : null);
+          
+          if (status === "success") {
+            loadReport();
+          }
+        });
+        unlistenFinished = finishSub;
+      };
+      
+      listenEvents();
+      
+      return () => {
+        if (unlistenStart) unlistenStart();
+        if (unlistenFinished) unlistenFinished();
+      };
+    }
+  }, [loadReport]);
+
   const wsRef = useRef<WebSocket | null>(null);
 
   // Scroll to bottom of chat
@@ -2383,6 +2471,87 @@ export default function Dashboard() {
         {/* ── Progression Tab ────────────────────────────────────── */}
         {tab === "progression" && (
           <div className="space-y-6 animate-fade-in-up">
+            {/* Scheduler Card */}
+            {isTauri && schedulerStatus && (
+              <div className="panel border border-slate-800 rounded-lg overflow-hidden bg-[#0d141f]">
+                <div className="px-5 py-4 font-mono text-[11px] font-bold uppercase tracking-widest flex items-center justify-between"
+                  style={{ color: "#64748b", borderBottom: `1px solid ${DIM}`, background: '#090f17' }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-400">⏰</span>
+                    <span>Rust Background Scheduler (Method A)</span>
+                  </div>
+                  <span className="text-[10px] text-blue-400 bg-blue-400/10 border border-blue-400/20 px-2 py-0.5 rounded">low process priority</span>
+                </div>
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-xs font-mono uppercase tracking-wider text-slate-500">Scheduler Status</h4>
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <span className={`w-2.5 h-2.5 rounded-full ${schedulerStatus.enabled ? "bg-emerald-500 animate-pulse" : "bg-slate-600"}`}></span>
+                        <span className="font-mono text-sm text-white font-bold">
+                          {schedulerStatus.enabled ? "Active" : "Disabled"}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-mono uppercase tracking-wider text-slate-500">Cron Schedule</h4>
+                      <p className="font-mono text-xs text-slate-300 mt-1">
+                        4:30 PM IST on weekdays (UTC: {schedulerStatus.cron_expression})
+                      </p>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-mono uppercase tracking-wider text-slate-500">Auto Git Update</h4>
+                      <p className="font-mono text-xs text-slate-400 mt-1 leading-relaxed">
+                        Performs <span className="text-emerald-400 font-bold">git pull</span> prior to running to fetch the latest weekly retrained models from the cloud repository.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-4 border-t md:border-t-0 md:border-l border-slate-800/80 md:pl-6 pt-4 md:pt-0">
+                    <div>
+                      <h4 className="text-xs font-mono uppercase tracking-wider text-slate-500">Last Execution Time</h4>
+                      <p className="font-mono text-xs text-slate-300 mt-1">
+                        {schedulerStatus.last_run_time || "Never executed"}
+                      </p>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-mono uppercase tracking-wider text-slate-500">Last Execution Status</h4>
+                      <span className={`inline-block font-mono text-[11px] px-2 py-0.5 mt-1.5 rounded font-bold ${
+                        schedulerStatus.last_run_status === "Success" 
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          : schedulerStatus.last_run_status?.startsWith("Failed") || schedulerStatus.last_run_status?.startsWith("Error")
+                          ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                          : schedulerStatus.last_run_status === "Running..." || schedulerStatus.last_run_status?.startsWith("Running")
+                          ? "bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse"
+                          : "bg-slate-800 text-slate-400 border border-slate-700"
+                      }`}>
+                        {schedulerStatus.last_run_status || "Idle"}
+                      </span>
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={() => handleToggleScheduler(!schedulerStatus.enabled)}
+                        disabled={schedulerLoading || schedulerStatus.is_running}
+                        className={`flex-1 font-mono text-xs font-bold py-2 px-3 rounded transition-all text-center select-none ${
+                          schedulerStatus.enabled 
+                            ? "bg-slate-800 hover:bg-slate-700 text-red-400 border border-red-500/20"
+                            : "bg-emerald-500 hover:bg-emerald-400 text-black"
+                        }`}
+                      >
+                        {schedulerStatus.enabled ? "Disable Scheduler" : "Enable Scheduler"}
+                      </button>
+                      <button
+                        onClick={handleTriggerSchedulerNow}
+                        disabled={schedulerLoading || schedulerStatus.is_running}
+                        className="flex-1 font-mono text-xs font-bold bg-[#1e2d40] hover:bg-[#2c3d55] text-white border border-[#3b82f6]/20 py-2 px-3 rounded transition-all text-center select-none"
+                      >
+                        {schedulerStatus.is_running ? "Running..." : "Run Now (Low CPU)"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Machine Learning Workflow Card */}
             <div className="panel border border-slate-800 rounded-lg overflow-hidden bg-[#0d141f]">
               <div className="px-5 py-4 font-mono text-[11px] font-bold uppercase tracking-widest flex items-center justify-between"

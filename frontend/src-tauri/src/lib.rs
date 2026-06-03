@@ -11,6 +11,402 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::thread;
 
+// Scheduler & Notification imports
+use tokio_cron_scheduler::{Job, JobScheduler};
+use tauri_plugin_notification::NotificationExt;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+
+// Process priority controls
+#[cfg(windows)]
+fn set_idle_priority(child: &std::process::Child) {
+    use winapi::um::processthreadsapi::SetPriorityClass;
+    use winapi::um::winbase::IDLE_PRIORITY_CLASS;
+    use std::os::windows::io::AsRawHandle;
+    
+    let handle = child.as_raw_handle();
+    unsafe {
+        let ok = SetPriorityClass(handle as _, IDLE_PRIORITY_CLASS);
+        if ok == 0 {
+            eprintln!("[DhanNiti] Failed to set process priority to IDLE_PRIORITY_CLASS.");
+        } else {
+            println!("[DhanNiti] Process priority set to IDLE successfully.");
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn set_idle_priority(child: &std::process::Child) {
+    #[cfg(unix)]
+    {
+        use libc::{setpriority, PRIO_PROCESS};
+        unsafe {
+            let res = setpriority(PRIO_PROCESS, child.id() as _, 19);
+            if res != 0 {
+                eprintln!("[DhanNiti] Failed to set process nice value to 19.");
+            } else {
+                println!("[DhanNiti] Process nice value set to 19 successfully.");
+            }
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SchedulerConfig {
+    pub enabled: bool,
+    pub cron_expression: String,
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cron_expression: "0 0 11 * * 1-5".to_string(), // Mon–Fri 11:00 UTC (4:30 PM IST)
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SchedulerStatus {
+    pub enabled: bool,
+    pub cron_expression: String,
+    pub last_run_time: Option<String>,
+    pub last_run_status: Option<String>,
+    pub is_running: bool,
+}
+
+pub struct SchedulerState {
+    pub scheduler: JobScheduler,
+    pub config: std::sync::Mutex<SchedulerConfig>,
+    pub job_id: tokio::sync::Mutex<Option<uuid::Uuid>>,
+    pub last_run_time: std::sync::Mutex<Option<String>>,
+    pub last_run_status: std::sync::Mutex<Option<String>>,
+    pub is_running: std::sync::Mutex<bool>,
+}
+
+fn run_pipeline_job(app_handle: tauri::AppHandle) -> Result<std::process::Child, String> {
+    let project_root = get_project_root(&app_handle);
+    
+    // 1. Send start notification
+    let _ = app_handle.notification()
+        .builder()
+        .title("DhanNiti Sentinel")
+        .body("Daily portfolio rebalance pipeline has started in background (low CPU priority).")
+        .show();
+        
+    // 2. Perform git pull
+    println!("[DhanNiti Scheduler] Running git pull to fetch latest models...");
+    let git_status = Command::new("git")
+        .arg("pull")
+        .current_dir(&project_root)
+        .status();
+    match git_status {
+        Ok(status) => {
+            if status.success() {
+                println!("[DhanNiti Scheduler] git pull completed successfully.");
+            } else {
+                eprintln!("[DhanNiti Scheduler] git pull failed with status: {:?}", status);
+            }
+        }
+        Err(e) => {
+            eprintln!("[DhanNiti Scheduler] Failed to run git pull (continuing anyway): {}", e);
+        }
+    }
+    
+    // 3. Resolve python command
+    let python = python_cmd(&project_root);
+    let mut cmd = Command::new(&python[0]);
+    if python.len() > 1 {
+        cmd.args(&python[1..]);
+    }
+    
+    cmd.args(["-m", "src.main"])
+       .current_dir(&project_root);
+       
+    // Spawning the process
+    println!("[DhanNiti Scheduler] Spawning python pipeline process: {:?}", cmd);
+    let child = cmd.spawn().map_err(|e| format!("Failed to spawn python pipeline: {}", e))?;
+    
+    // Set low process priority
+    set_idle_priority(&child);
+    
+    Ok(child)
+}
+
+async fn start_scheduler_job(state: Arc<SchedulerState>, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let mut job_id_guard = state.job_id.lock().await;
+    
+    // Stop existing job if any
+    if let Some(id) = job_id_guard.take() {
+        let _ = state.scheduler.remove(&id).await;
+    }
+    
+    let cron = {
+        let config = state.config.lock().unwrap();
+        config.cron_expression.clone()
+    };
+    
+    let state_weak = Arc::downgrade(&state);
+    let app_handle_weak = app_handle.clone();
+    
+    let job = Job::new_async(cron.as_str(), move |_uuid, _l| {
+        let state_opt = state_weak.upgrade();
+        let app_handle = app_handle_weak.clone();
+        Box::pin(async move {
+            if let Some(state) = state_opt {
+                println!("[DhanNiti Scheduler] Cron job triggered!");
+                
+                // Check if already running to prevent overlap
+                {
+                    let mut is_running = state.is_running.lock().unwrap();
+                    if *is_running {
+                        println!("[DhanNiti Scheduler] Job already in progress, skipping.");
+                        return;
+                    }
+                    *is_running = true;
+                }
+                
+                // Update state variables
+                {
+                    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                    *state.last_run_time.lock().unwrap() = Some(now);
+                    *state.last_run_status.lock().unwrap() = Some("Running...".to_string());
+                }
+                
+                let _ = app_handle.emit("scheduler-run-started", ());
+                
+                // Run the pipeline
+                let run_result = run_pipeline_job(app_handle.clone());
+                
+                match run_result {
+                    Ok(child) => {
+                        // Wait for child in separate async task
+                        let state_clone = state.clone();
+                        let app_handle_clone = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let mut child = child;
+                            let exit_status = child.wait();
+                            
+                            let mut is_running = state_clone.is_running.lock().unwrap();
+                            *is_running = false;
+                            
+                            match exit_status {
+                                Ok(status) => {
+                                    if status.success() {
+                                        println!("[DhanNiti Scheduler] Pipeline run succeeded.");
+                                        *state_clone.last_run_status.lock().unwrap() = Some("Success".to_string());
+                                        let _ = app_handle_clone.notification()
+                                            .builder()
+                                            .title("DhanNiti Daily Run")
+                                            .body("Daily optimization pipeline completed successfully.")
+                                            .show();
+                                        let _ = app_handle_clone.emit("scheduler-run-finished", "success".to_string());
+                                    } else {
+                                        let code_str = status.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string());
+                                        eprintln!("[DhanNiti Scheduler] Pipeline run failed with status: {}", code_str);
+                                        *state_clone.last_run_status.lock().unwrap() = Some(format!("Failed (code {})", code_str));
+                                        let _ = app_handle_clone.notification()
+                                            .builder()
+                                            .title("DhanNiti Daily Run")
+                                            .body(format!("Daily optimization pipeline failed (code {}).", code_str))
+                                            .show();
+                                        let _ = app_handle_clone.emit("scheduler-run-finished", format!("failed: exit code {}", code_str));
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("[DhanNiti Scheduler] Error waiting for pipeline: {}", e);
+                                    *state_clone.last_run_status.lock().unwrap() = Some(format!("Error: {}", e));
+                                    let _ = app_handle_clone.notification()
+                                        .builder()
+                                        .title("DhanNiti Daily Run")
+                                        .body(format!("Daily optimization pipeline error: {}.", e))
+                                        .show();
+                                    let _ = app_handle_clone.emit("scheduler-run-finished", format!("error: {}", e));
+                                }
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        let mut is_running = state.is_running.lock().unwrap();
+                        *is_running = false;
+                        *state.last_run_status.lock().unwrap() = Some(format!("Failed to start: {}", e));
+                        
+                        let _ = app_handle.notification()
+                            .builder()
+                            .title("DhanNiti Daily Run")
+                            .body(format!("Failed to start daily optimization: {}.", e))
+                            .show();
+                        let _ = app_handle.emit("scheduler-run-finished", format!("failed to start: {}", e));
+                    }
+                }
+            }
+        })
+    })
+    .map_err(|e| format!("Failed to create job: {}", e))?;
+    
+    let id = job.guid();
+    state.scheduler.add(job).await.map_err(|e| format!("Failed to add job: {}", e))?;
+    *job_id_guard = Some(id);
+    
+    // Make sure the scheduler itself is started
+    let _ = state.scheduler.start().await;
+    
+    Ok(())
+}
+
+// ── Scheduler IPC Commands ───────────────────────────────────────────────────
+
+#[tauri::command]
+async fn get_scheduler_status(state: tauri::State<'_, Arc<SchedulerState>>) -> Result<SchedulerStatus, String> {
+    let config = state.config.lock().unwrap().clone();
+    let last_run_time = state.last_run_time.lock().unwrap().clone();
+    let last_run_status = state.last_run_status.lock().unwrap().clone();
+    let is_running = state.is_running.lock().unwrap().clone();
+    
+    Ok(SchedulerStatus {
+        enabled: config.enabled,
+        cron_expression: config.cron_expression,
+        last_run_time,
+        last_run_status,
+        is_running,
+    })
+}
+
+#[tauri::command]
+async fn toggle_scheduler(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<SchedulerState>>,
+    enabled: bool,
+) -> Result<SchedulerStatus, String> {
+    let cron_expression = {
+        let mut config = state.config.lock().unwrap();
+        config.enabled = enabled;
+        let cron = config.cron_expression.clone();
+        
+        // Save to file
+        let app_data_dir = get_app_data_dir(&app);
+        let config_path = app_data_dir.join("scheduler_config.json");
+        if let Ok(content) = serde_json::to_string_pretty(&*config) {
+            let _ = std::fs::write(config_path, content);
+        }
+        cron
+    };
+    
+    if enabled {
+        let state_clone = state.inner().clone();
+        let app_handle = app.clone();
+        start_scheduler_job(state_clone, app_handle).await?;
+        println!("[DhanNiti Scheduler] Scheduler enabled and started.");
+    } else {
+        let mut job_id_guard = state.job_id.lock().await;
+        if let Some(id) = job_id_guard.take() {
+            let _ = state.scheduler.remove(&id).await;
+            println!("[DhanNiti Scheduler] Scheduler job removed.");
+        }
+    }
+    
+    let last_run_time = state.last_run_time.lock().unwrap().clone();
+    let last_run_status = state.last_run_status.lock().unwrap().clone();
+    let is_running = state.is_running.lock().unwrap().clone();
+    
+    Ok(SchedulerStatus {
+        enabled,
+        cron_expression,
+        last_run_time,
+        last_run_status,
+        is_running,
+    })
+}
+
+#[tauri::command]
+async fn trigger_scheduler_now(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<SchedulerState>>,
+) -> Result<String, String> {
+    // Check if already running
+    {
+        let mut is_running = state.is_running.lock().unwrap();
+        if *is_running {
+            return Err("A scheduler run is already in progress.".to_string());
+        }
+        *is_running = true;
+    }
+    
+    // Update state variables
+    {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        *state.last_run_time.lock().unwrap() = Some(now);
+        *state.last_run_status.lock().unwrap() = Some("Running (manual trigger)...".to_string());
+    }
+    
+    let _ = app.emit("scheduler-run-started", ());
+    
+    let run_result = run_pipeline_job(app.clone());
+    
+    match run_result {
+        Ok(child) => {
+            let state_clone = state.inner().clone();
+            let app_handle_clone = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut child = child;
+                let exit_status = child.wait();
+                
+                let mut is_running = state_clone.is_running.lock().unwrap();
+                *is_running = false;
+                
+                match exit_status {
+                    Ok(status) => {
+                        if status.success() {
+                            println!("[DhanNiti Scheduler] Manual pipeline run succeeded.");
+                            *state_clone.last_run_status.lock().unwrap() = Some("Success (manual)".to_string());
+                            let _ = app_handle_clone.notification()
+                                .builder()
+                                .title("DhanNiti Sentinel")
+                                .body("Manual portfolio optimization completed successfully.")
+                                .show();
+                            let _ = app_handle_clone.emit("scheduler-run-finished", "success".to_string());
+                        } else {
+                            let code_str = status.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string());
+                            eprintln!("[DhanNiti Scheduler] Manual pipeline run failed: {}", code_str);
+                            *state_clone.last_run_status.lock().unwrap() = Some(format!("Failed (code {})", code_str));
+                            let _ = app_handle_clone.notification()
+                                .builder()
+                                .title("DhanNiti Sentinel")
+                                .body(format!("Manual optimization failed (code {}).", code_str))
+                                .show();
+                            let _ = app_handle_clone.emit("scheduler-run-finished", format!("failed: exit code {}", code_str));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[DhanNiti Scheduler] Error waiting for manual pipeline: {}", e);
+                        *state_clone.last_run_status.lock().unwrap() = Some(format!("Error: {}", e));
+                        let _ = app_handle_clone.notification()
+                            .builder()
+                            .title("DhanNiti Sentinel")
+                            .body(format!("Manual optimization error: {}.", e))
+                            .show();
+                        let _ = app_handle_clone.emit("scheduler-run-finished", format!("error: {}", e));
+                    }
+                }
+            });
+            Ok("Pipeline triggered successfully.".to_string())
+        }
+        Err(e) => {
+            let mut is_running = state.is_running.lock().unwrap();
+            *is_running = false;
+            *state.last_run_status.lock().unwrap() = Some(format!("Manual trigger failed to start: {}", e));
+            
+            let _ = app.notification()
+                .builder()
+                .title("DhanNiti Sentinel")
+                .body(format!("Manual optimization failed to start: {}.", e))
+                .show();
+            let _ = app.emit("scheduler-run-finished", format!("failed to start: {}", e));
+            Err(e)
+        }
+    }
+}
+
 // ── IPC Commands (callable from JavaScript via invoke()) ──────────────────────
 
 /// Check if the backend is up (FastAPI /health returns 200).
@@ -332,6 +728,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             check_backend_health,
             check_env_exists,
@@ -340,14 +737,17 @@ pub fn run() {
             save_env_file,
             run_supabase_init,
             restart_sidecars,
+            get_scheduler_status,
+            toggle_scheduler,
+            trigger_scheduler_now,
         ])
         .setup(|app| {
-            let app_handle = app.handle();
+            let app_handle = app.handle().clone();
             
             // Load environment keys into Rust process space so Python subprocesses inherit them
-            load_env_into_process(app_handle);
+            load_env_into_process(&app_handle);
             
-            let project_root = get_project_root(app_handle);
+            let project_root = get_project_root(&app_handle);
             println!("[DhanNiti] Project root: {}", project_root.display());
             
             // Spawn Python sidecar processes
@@ -355,6 +755,93 @@ pub fn run() {
             
             // Store sidecars in app state so we can kill them on exit
             app.manage(sidecars.clone());
+            
+            // Initialize scheduler state
+            let app_data_dir = get_app_data_dir(&app_handle);
+            let config_path = app_data_dir.join("scheduler_config.json");
+            
+            let config = if config_path.exists() {
+                std::fs::read_to_string(&config_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<SchedulerConfig>(&s).ok())
+                    .unwrap_or_default()
+            } else {
+                SchedulerConfig::default()
+            };
+
+            if !config_path.exists() {
+                let _ = std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default());
+            }
+
+            let scheduler = tauri::async_runtime::block_on(async {
+                JobScheduler::new().await.expect("Failed to create scheduler")
+            });
+
+            let state = Arc::new(SchedulerState {
+                scheduler,
+                config: std::sync::Mutex::new(config.clone()),
+                job_id: tokio::sync::Mutex::new(None),
+                last_run_time: std::sync::Mutex::new(None),
+                last_run_status: std::sync::Mutex::new(None),
+                is_running: std::sync::Mutex::new(false),
+            });
+
+            app.manage(state.clone());
+
+            if config.enabled {
+                let state_clone = state.clone();
+                let app_handle_clone = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = start_scheduler_job(state_clone, app_handle_clone).await {
+                        eprintln!("[DhanNiti Scheduler] Error starting job: {}", e);
+                    }
+                });
+            }
+
+            // Create tray menu
+            let show_i = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>).expect("menu show failed");
+            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>).expect("menu quit failed");
+            let menu = Menu::with_items(app, &[&show_i, &quit_i]).expect("menu build failed");
+
+            let mut tray_builder = TrayIconBuilder::new()
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "quit" => {
+                            if let Some(sidecars) = app.try_state::<Arc<Sidecars>>() {
+                                sidecars.kill_all();
+                                println!("[DhanNiti] Sidecars killed. Exiting.");
+                            }
+                            app.exit(0);
+                        }
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button_state: tauri::tray::MouseButtonState::Up, .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                });
+
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+
+            let _tray = tray_builder.build(app).expect("Failed to build tray icon");
             
             // Wait a moment for servers to warm up, then emit ready event
             let app_handle_clone = app_handle.clone();
@@ -366,12 +853,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Kill Python sidecars cleanly
-                if let Some(sidecars) = window.app_handle().try_state::<Arc<Sidecars>>() {
-                    sidecars.kill_all();
-                    println!("[DhanNiti] Sidecars killed. Goodbye.");
-                }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Instead of closing, hide the window
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .run(tauri::generate_context!())
